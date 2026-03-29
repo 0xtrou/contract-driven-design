@@ -8,10 +8,12 @@ import {
 } from "./contract.js";
 
 describe("contract runtime", () => {
-  it("loads the YAML contract", () => {
+  it("loads the YAML contract with spec version", () => {
     const contract = loadContract();
+    expect(contract.spec_version).toBe("1.0.0");
     expect(contract.component).toBe("CounterComponent");
     expect(contract.version).toBe("1.0.0");
+    expect(contract.kind).toBe("stateful");
   });
 
   it("derives default state from the contract", () => {
@@ -45,5 +47,13 @@ describe("contract runtime", () => {
       retryable: false,
       description: "Increment would exceed maximum value",
     });
+  });
+
+  it("parses verifiable and aspirational guarantees", () => {
+    const contract = loadContract();
+    expect(contract.guarantees.verifiable.length).toBeGreaterThan(0);
+    expect(contract.guarantees.aspirational.length).toBeGreaterThan(0);
+    expect(contract.guarantees.verifiable[0]).toHaveProperty("operation");
+    expect(contract.guarantees.aspirational[0]).toHaveProperty("enforcement");
   });
 });

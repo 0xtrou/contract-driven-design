@@ -38,12 +38,35 @@ export type OperationAnnotations = {
   openWorld: boolean;
 };
 
-export type ContractDefinition = {
+export type VerifiableGuarantee = {
+  operation: string;
+  assertion: string;
+  test: string;
+};
+
+export type AspirationalGuarantee = {
+  statement: string;
+  enforcement: string;
+};
+
+export type ContractDependency = {
   component: string;
   version: string;
-  kind: string;
+  guarantees_assumed: string[];
+};
+
+export type ContractDefinition = {
+  spec_version: string;
+  component: string;
+  version: string;
+  kind: "stateless" | "stateful" | "async" | "streaming";
   description: string;
   instructions: string;
   errors: Record<string, { retryable: boolean; description: string }>;
   annotations: Record<string, OperationAnnotations>;
+  guarantees: {
+    verifiable: VerifiableGuarantee[];
+    aspirational: AspirationalGuarantee[];
+  };
+  requires?: ContractDependency[];
 };

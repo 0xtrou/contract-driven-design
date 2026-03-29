@@ -1,6 +1,6 @@
 # Counter Component
 
-A minimal reference implementation of a **contract-driven, MCP-native** component.
+A reference implementation of a **contract-driven** component.
 
 The internals are intentionally unremarkable. The point is the boundary.
 
@@ -11,33 +11,33 @@ The internals are intentionally unremarkable. The point is the boundary.
 ```bash
 npm install
 npm test              # boundary conformance suite
-npm run start:stdio   # run as MCP server
+npm run start:stdio   # run as MCP server (reference projection)
 ```
 
 ---
 
 ## Contract
 
-The component's boundary commitments are declared in [`counter.component.yml`](./counter.component.yml).
+Boundary commitments declared in [`counter.component.yml`](./counter.component.yml).
 
-This file is the only normative artifact. It defines:
+This is the only normative artifact. It defines:
 
 - **Operations**: `increment`, `decrement`, `get`, `reset`
 - **Output**: `{ value: integer }` on every successful call
-- **Errors**: `COUNTER_OVERFLOW`, `COUNTER_UNDERFLOW` — typed, with retryability declared
-- **Side effects**: none permitted (`network`, `filesystem`, `database` all forbidden)
-- **State bounds**: integer counter with declared min/max defaults
-- **Annotations**: per-operation `readOnly`, `destructive`, `idempotent`, `openWorld`
+- **Errors**: `COUNTER_OVERFLOW`, `COUNTER_UNDERFLOW` — typed, with retryability
+- **Side effects**: none permitted
+- **Verifiable guarantees**: tested and linked to specific test cases
+- **Aspirational guarantees**: maintained by convention + enforcement mechanism declared
 
 Internals are free to change. The contract is not.
 
 ---
 
-## MCP Surface
+## Protocol Projection (MCP)
 
-The component projects itself as an MCP server derived from the contract:
+The component projects into an MCP server as the reference projection:
 
-### Tools
+### Tools (from contract operations)
 
 | Tool | Contract operation |
 |------|--------------------|
@@ -46,14 +46,12 @@ The component projects itself as an MCP server derived from the contract:
 | `counter_get` | `get` |
 | `counter_reset` | `reset` |
 
-All tool metadata (input schemas, annotations) is derived from `counter.component.yml`.
-
 ### Resources
 
 | URI | Content |
 |-----|---------|
-| `counter://contract` | Parsed contract (JSON) |
-| `counter://state` | Current runtime state (JSON) |
+| `counter://contract` | Canonical YAML contract |
+| `counter://state` | Current boundary-observable state |
 
 ### Prompts
 
@@ -71,13 +69,11 @@ Tests prove the boundary honors the contract. Implementation details are not tes
 npm test
 ```
 
-Three test suites:
-
-| File | What it tests |
-|------|---------------|
-| `contract.test.ts` | Contract loads and parses correctly |
-| `counter.test.ts` | Boundary commitments: output shape, error codes, state guarantees |
-| `server.test.ts` | MCP projection matches contract: tools, annotations, resources, prompts |
+| File | What it proves |
+|------|----------------|
+| `contract.test.ts` | Contract loads, parses, and contains expected structure |
+| `counter.test.ts` | Boundary commitments hold: output shape, error codes, guarantees |
+| `server.test.ts` | Protocol projection matches contract: tools, annotations, resources |
 
 ---
 
@@ -85,18 +81,18 @@ Three test suites:
 
 ```
 counter-component/
-├── counter.component.yml   # Canonical contract — the only normative file
+├── counter.component.yml   # Canonical contract — only normative file
 ├── src/
 │   ├── contract.ts         # Loads, validates, and projects the contract
 │   ├── types.ts            # TypeScript types for contract shape
-│   ├── counter.ts          # Implementation (illustrative — non-normative)
+│   ├── counter.ts          # Implementation (non-normative)
 │   ├── contract.test.ts    # Contract loading tests
 │   ├── counter.test.ts     # Boundary conformance tests
-│   ├── server.ts           # MCP server (projected from contract)
+│   ├── server.ts           # MCP server (reference projection)
 │   └── server.test.ts      # MCP boundary conformance tests
 ├── examples/
-│   ├── increment.json      # Successful operation example
-│   └── overflow.json       # Error boundary example
+│   ├── increment.json
+│   └── overflow.json
 ├── package.json
 ├── tsconfig.json
 └── vitest.config.ts

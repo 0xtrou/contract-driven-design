@@ -8,22 +8,20 @@
 
 ## The Problem
 
-AI agents currently need to **read entire codebases** to understand behavior.
+Consumers of a component — humans, agents, CI pipelines, documentation systems — currently infer behavior from source code.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Agent needs to understand "capturePayment()"           │
+│  Consumer needs to understand "capturePayment()"        │
 │                                                         │
 │  ❌ Without a contract:                                 │
-│     → grep for function                                 │
 │     → read implementation                               │
 │     → trace dependencies                                │
 │     → infer error behavior                              │
 │     → hope nothing is hidden                            │
+│     → build a mental model that may be wrong            │
 └─────────────────────────────────────────────────────────┘
 ```
-
-This is fragile, token-expensive, and unreliable.
 
 ---
 
@@ -33,15 +31,18 @@ This is fragile, token-expensive, and unreliable.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Agent needs to understand "CapturePaymentComponent"    │
+│  Consumer needs to understand "CapturePaymentComponent" │
 │                                                         │
 │  ✅ With a contract:                                    │
 │     → read component.yml (one file)                     │
-│     → know inputs, outputs, errors                      │
-│     → know side effects & guarantees                    │
+│     → know inputs, outputs, errors, side effects        │
+│     → know which guarantees are tested vs aspirational  │
+│     → know composition dependencies                     │
 │     → source reading is not required                    │
 └─────────────────────────────────────────────────────────┘
 ```
+
+Contracts benefit every consumer equally. There is no primary consumer — there is only the contract.
 
 ---
 
@@ -49,85 +50,48 @@ This is fragile, token-expensive, and unreliable.
 
 > Observable behavior at the component boundary must conform to the declared contract.
 
-What this means in practice:
-
 | Inside the component | At the boundary |
 |---|---|
 | Any code style | Declared input schema |
 | Any algorithm | Declared output shape |
 | Any level of mess | Declared error taxonomy |
-| No judgment | Declared side effects |
-| Completely free | Declared annotations |
+| No judgment | Declared side effects and guarantees |
 
 **We judge commitments. Not internals.**
 
 ---
 
-## Equation
+## Key Concepts
 
-```
-Need-to-read-repo = hidden behavior + boundary leaks + undefined failures
-```
-
-Drive all three terms to zero. That's the whole philosophy.
+| Concept | What it means |
+|---|---|
+| **Contract-first** | The contract is the single source of truth for all consumers |
+| **Boundary enforcement** | Only boundary behavior is judged — internals are free |
+| **Split guarantees** | Verifiable (tested) vs aspirational (convention-enforced) |
+| **Composition model** | `requires` declares dependency contracts and assumed guarantees |
+| **Protocol-projectable** | MCP, OpenAPI, gRPC, CLI, SDK — all derived from contract |
+| **Component granularity** | Smallest unit that owns its own state lifecycle and error boundary |
+| **Contract cost** | Readable in <2 min, shorter than the implementation |
 
 ---
 
 ## Quick Start
 
-### 1. Read the Spec
-
-Full philosophy in [`SPECS.md`](./SPECS.md).
-
-### 2. Run the Reference
-
-`counter-component/` is a working example:
-
 ```bash
 cd counter-component
 npm install
-npm test           # boundary conformance suite
-npm run start:stdio  # run as MCP server
+npm test              # boundary conformance suite
+npm run start:stdio   # run as MCP server (reference projection)
 ```
 
-### 3. Explore the MCP Surface
-
-```bash
-npm run start:stdio
-```
-
-Exposes:
-- 4 tools: `counter_increment`, `counter_decrement`, `counter_get`, `counter_reset`
-- 2 resources: `counter://contract`, `counter://state`
-- 1 prompt: `counter_usage`
-
----
-
-## What's Inside
-
-```
-.
-├── SPECS.md                    # Full philosophy & specification
-├── counter-component/          # Reference implementation
-│   ├── counter.component.yml   # Canonical contract — source of truth
-│   ├── src/
-│   │   ├── contract.ts         # Contract loader & projection
-│   │   ├── counter.ts          # Implementation (internals — non-normative)
-│   │   ├── counter.test.ts     # Boundary conformance tests
-│   │   ├── server.ts           # MCP server (projected from contract)
-│   │   └── server.test.ts      # MCP boundary conformance tests
-│   ├── examples/               # Input/output examples
-│   └── README.md               # Component docs
-└── README.md                   # You are here
-```
+Full philosophy: [`SPECS.md`](./SPECS.md)
 
 ---
 
 ## Contract Anatomy
 
-The contract is the only normative artifact. Implementation is irrelevant.
-
 ```yaml
+spec_version: 1.0.0
 component: CounterComponent
 version: 1.0.0
 kind: stateful
@@ -136,16 +100,13 @@ input:
   increment:
     type: object
     properties:
-      amount:
-        type: integer
-        minimum: 1
+      amount: { type: integer, minimum: 1 }
 
 output:
   type: object
   required: [value]
   properties:
-    value:
-      type: integer
+    value: { type: integer }
 
 errors:
   COUNTER_OVERFLOW:
@@ -154,25 +115,22 @@ errors:
 
 sideEffects:
   allowed: []
-  forbidden:
-    - network
-    - filesystem
-    - database
+  forbidden: [network, filesystem, database]
 
 guarantees:
-  success:
-    - output.value is always an integer within declared bounds
-    - get never modifies state
-    - reset always sets value to 0
-  failure:
-    - state is never modified on error
-    - only declared error codes may be returned
+  verifiable:
+    - operation: get
+      assertion: state_unchanged_after_call
+      test: counter.test.ts#get_does_not_change_observable_value
+  aspirational:
+    - statement: "only declared error codes cross the boundary"
+      enforcement: catch-all error wrapper + error taxonomy test
 
 annotations:
   get:
     readOnly: true
-    destructive: false
     idempotent: true
+    destructive: false
     openWorld: false
 ```
 
@@ -180,68 +138,26 @@ annotations:
 
 ## Why This Matters
 
-### For Agents
-
-- **Token efficiency** — read 1 file, not 100
-- **Deterministic reasoning** — no hidden behavior
-- **Safe consumption** — commitments are enforced, not hoped for
-- **Composability** — boundaries are explicit
-
-### For Humans
-
-- **Faster onboarding** — the contract is the map
-- **Safe refactoring** — internals can change freely if boundary holds
-- **Breaking change detection** — diffs are classified automatically
-- **No ceremony** — write contract, write anything, prove it works
+- **For humans** — contracts are the map; internals can change freely if the boundary holds
+- **For agents** — read 1 file, know all commitments; no source crawling
+- **For CI** — conformance check is one command; drift is mechanically prevented
+- **For documentation** — the contract IS the docs; always current, never stale
 
 ---
 
-## Two-Layer Model
+## Protocol Projections
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Agent-First Driven Design (AFDD)                       │
-│  "Agents are the primary consumer"                      │
-└─────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│  Contract-Driven Components (CDC)                       │
-│  "Components commit to boundary contracts"              │
-└─────────────────────────────────────────────────────────┘
-```
+The contract is protocol-agnostic. It projects into any runtime interface:
 
-AFDD without CDC is ideology.  
-CDC without AFDD is overhead.  
-**Both are required.**
+| Protocol | Projection |
+|---|---|
+| MCP | Tools, resources, prompts |
+| OpenAPI | Paths, schemas, error responses |
+| gRPC | Services, messages |
+| CLI | Commands, flags, exit codes |
+| SDK | Typed functions, error classes |
 
----
-
-## MCP Projection
-
-Contracts project into MCP servers automatically:
-
-| Contract | → | MCP |
-|----------|---|-----|
-| Operations | → | Tools |
-| Instructions / Examples | → | Prompts |
-| Contract artifact / State | → | Resources |
-| Error taxonomy | → | Structured error payloads |
-| Annotations | → | Tool metadata hints |
-
-Contract is authority. MCP is projection.
-
----
-
-## Non-Negotiable Rules
-
-1. No component ships without a contract
-2. No contract without boundary conformance evidence
-3. No undeclared error codes at the boundary
-4. No undeclared side effects
-5. No breaking changes without a major version bump
-6. No MCP surface that contradicts the contract
-7. No "done" without conformance evidence passing
+MCP is the reference projection in this repo. It is not the required projection.
 
 ---
 
@@ -250,14 +166,14 @@ Contract is authority. MCP is projection.
 - [ ] `cddc check` — contract conformance CLI
 - [ ] Breaking-change classifier for CI
 - [ ] `defineComponent()` — typed contract binding API
-- [ ] Contract registry
-- [ ] More reference components (effectful, workflow)
+- [ ] Contract registry / dependency resolution
+- [ ] `kind: streaming` and `kind: async` reference components
 
 ---
 
 ## Philosophy
 
-Inside the boundary: build however you want.  
+Inside the boundary: build however you want.
 At the boundary: your commitments are law.
 
 > **Commitments win.**
@@ -272,8 +188,7 @@ MIT
 
 ## Acknowledgments
 
-Builds on:
-- [Model Context Protocol](https://modelcontextprotocol.io) — Anthropic
 - [Design by Contract](https://en.wikipedia.org/wiki/Design_by_contract) — Bertrand Meyer
-- [Clarity Language](https://docs.stacks.co/clarity/overview) — decidability as a design principle
+- [Model Context Protocol](https://modelcontextprotocol.io) — Anthropic
+- [Clarity Language](https://docs.stacks.co/clarity/overview) — decidability as design principle
 - [Pact](https://docs.pact.io) — consumer-driven contract testing

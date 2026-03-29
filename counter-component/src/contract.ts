@@ -30,22 +30,49 @@ const objectSchema = z.object({
   required: z.array(z.string()),
 });
 
+const guaranteesSchema = z.object({
+  verifiable: z.array(
+    z.object({
+      operation: z.string(),
+      assertion: z.string(),
+      test: z.string(),
+    })
+  ),
+  aspirational: z.array(
+    z.object({
+      statement: z.string(),
+      enforcement: z.string(),
+    })
+  ),
+});
+
+const requiresSchema = z.array(
+  z.object({
+    component: z.string(),
+    version: z.string(),
+    guarantees_assumed: z.array(z.string()),
+  })
+);
+
 const contractSchema = z.object({
+  spec_version: z.string(),
   component: z.string(),
   version: z.string(),
-  kind: z.string(),
+  kind: z.enum(["stateless", "stateful", "async", "streaming"]),
   description: z.string(),
   instructions: z.string(),
   input: z.record(z.string(), objectSchema),
   output: objectSchema,
-  state: z.object({
-    type: z.literal("object"),
-    properties: z.object({
-      value: z.object({ type: z.literal("integer"), default: z.number() }),
-      min: z.object({ type: z.literal("integer"), default: z.number() }),
-      max: z.object({ type: z.literal("integer"), default: z.number() }),
-    }),
-  }),
+  state: z
+    .object({
+      type: z.literal("object"),
+      properties: z.object({
+        value: z.object({ type: z.literal("integer"), default: z.number() }),
+        min: z.object({ type: z.literal("integer"), default: z.number() }),
+        max: z.object({ type: z.literal("integer"), default: z.number() }),
+      }),
+    })
+    .optional(),
   errors: z.record(
     z.string(),
     z.object({ retryable: z.boolean(), description: z.string() })
@@ -58,10 +85,7 @@ const contractSchema = z.object({
     allowed: z.array(z.string()),
     forbidden: z.array(z.string()),
   }),
-  guarantees: z.object({
-    success: z.array(z.string()),
-    failure: z.array(z.string()),
-  }),
+  guarantees: guaranteesSchema,
   annotations: z.record(
     z.string(),
     z.object({
@@ -71,6 +95,7 @@ const contractSchema = z.object({
       openWorld: z.boolean(),
     })
   ),
+  requires: requiresSchema.optional(),
 });
 
 export type LoadedContract = z.infer<typeof contractSchema> & ContractDefinition;
@@ -85,10 +110,15 @@ export function loadContract(): LoadedContract {
 }
 
 export function getDefaultState(contract: LoadedContract): CounterState {
+  const state = contract.state;
+  if (!state) {
+    throw new Error("State defaults are only available for stateful contracts");
+  }
+
   return {
-    value: contract.state.properties.value.default,
-    min: contract.state.properties.min.default,
-    max: contract.state.properties.max.default,
+    value: state.properties.value.default,
+    min: state.properties.min.default,
+    max: state.properties.max.default,
   };
 }
 

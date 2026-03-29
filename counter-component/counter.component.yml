@@ -1,15 +1,16 @@
+spec_version: 1.0.0
 component: CounterComponent
 version: 1.0.0
 kind: stateful
 
 description: >
-  A simple bounded integer counter.
+  A bounded integer counter.
   Supports increment, decrement, get, and reset operations.
-  Counter value is bounded between min and max.
+  Value is bounded between min and max.
 
 instructions: >
   Use counter_get to check the current value before deciding to increment or decrement.
-  The counter has upper and lower bounds — check the error response if an operation fails.
+  The counter has upper and lower bounds — operations outside those bounds return a declared error.
 
 input:
   increment:
@@ -89,15 +90,30 @@ sideEffects:
     - database
 
 guarantees:
-  success:
-    - output.value is always an integer within [state.min, state.max]
-    - get never modifies state
-    - reset always sets value to 0
-    - increment increases value by exactly the requested amount
-    - decrement decreases value by exactly the requested amount
-  failure:
-    - state is never modified on error
-    - only declared error codes may be returned
+  verifiable:
+    - operation: get
+      assertion: state_unchanged_after_call
+      test: counter.test.ts#get_does_not_change_observable_value
+    - operation: reset
+      assertion: value_is_zero_after_call
+      test: counter.test.ts#reset_sets_value_to_0
+    - operation: increment
+      assertion: value_increases_by_exact_amount
+      test: counter.test.ts#increments_by_specified_amount
+    - operation: decrement
+      assertion: value_decreases_by_exact_amount
+      test: counter.test.ts#decrements_by_specified_amount
+    - operation: increment
+      assertion: state_unchanged_on_overflow
+      test: counter.test.ts#does_not_change_observable_value_on_failure
+    - operation: decrement
+      assertion: state_unchanged_on_underflow
+      test: counter.test.ts#does_not_change_observable_value_on_failure
+  aspirational:
+    - statement: "only declared error codes cross the boundary"
+      enforcement: catch-all error wrapper in boundary layer + error taxonomy conformance test
+    - statement: "no network, filesystem, or database calls are made"
+      enforcement: side-effect declaration + code review
 
 annotations:
   increment:
