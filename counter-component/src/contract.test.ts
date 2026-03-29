@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  assertSupportedForCounter,
   getDefaultState,
   getErrorInfo,
   getOperationAnnotations,
@@ -55,5 +56,15 @@ describe("contract runtime", () => {
     expect(contract.guarantees.aspirational.length).toBeGreaterThan(0);
     expect(contract.guarantees.verifiable[0]).toHaveProperty("operation");
     expect(contract.guarantees.aspirational[0]).toHaveProperty("enforcement");
+  });
+
+  it("supports optional composition metadata", () => {
+    const contract = loadContract();
+    expect(contract.requires).toBeUndefined();
+  });
+
+  it("accepts this contract for counter reference implementation", () => {
+    const contract = loadContract();
+    expect(() => assertSupportedForCounter(contract)).not.toThrow();
   });
 });

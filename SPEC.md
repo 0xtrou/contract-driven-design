@@ -14,10 +14,10 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, **MAY** are to be interpreted 
 
 ## 2) Conformance Statement
 
-A component is **conformant** to this spec only if all of the following are true:
+A component is **conformant** only if all of the following are true:
 
 1. A contract file named `<component>.component.yml` exists.
-2. That file validates against the contract schema defined in this spec.
+2. That file validates against `schemas/component-contract.schema.json`.
 3. Boundary conformance tests pass.
 4. Projection outputs (MCP/OpenAPI/etc.) do not contradict the contract.
 
@@ -54,7 +54,7 @@ Anything not declared in the contract is non-normative.
 
 ## 5) Release Gate (No-Claim Rule)
 
-A component MUST NOT be marked complete/releasable unless:
+A component MUST NOT be marked releasable unless:
 
 1. Contract exists and validates
 2. Boundary conformance tests pass
@@ -68,7 +68,19 @@ This is the quality gate.
 
 ## 6) Contract Schema (Normative)
 
-Every contract MUST include:
+The authoritative machine-parseable schema is:
+
+`schemas/component-contract.schema.json`
+
+Validation command (reference):
+
+```bash
+cddc validate <contract-file> --schema schemas/component-contract.schema.json
+```
+
+The YAML snippets below are explanatory only. The JSON Schema artifact is authoritative.
+
+### 6.1 Required top-level fields
 
 ```yaml
 spec_version: "1.0.0"
@@ -79,66 +91,20 @@ kind: stateless | stateful | async | streaming
 description: string
 instructions: string
 
-input:
-  <operation>:
-    type: object
-    additionalProperties: boolean
-    properties: object
-    required: string[]
-
-output:
-  type: object
-  additionalProperties: boolean
-  properties: object
-  required: string[]
-
-errors:
-  <ERROR_CODE>:
-    retryable: boolean
-    description: string
-
-policies:
-  idempotency: required | not-required
-  timeoutMs: number
-
-sideEffects:
-  allowed: string[]
-  forbidden: string[]
-
-guarantees:
-  verifiable:
-    - operation: string
-      assertion: string
-      test: "path/to/test#case"
-  aspirational:
-    - statement: string
-      enforcement: string
-
-annotations:
-  <operation>:
-    readOnly: boolean
-    destructive: boolean
-    idempotent: boolean
-    openWorld: boolean
+input: object
+output: object
+errors: object
+policies: object
+sideEffects: object
+guarantees: object
+annotations: object
 ```
 
-Optional:
+### 6.2 Conditional requirements by kind
 
-```yaml
-lifecycle:
-  status: draft | stable | deprecated
-  since: YYYY-MM-DD
-  replaces: string
-
-requires:
-  - component: string
-    version: semver-range
-    guarantees_assumed: string[]
-
-state: object   # required for kind: stateful
-cancellation:   # relevant for streaming/async
-  supported: boolean
-```
+- `kind: stateful` → `state` block **MUST** exist
+- `kind: async` → `async` block **MUST** exist
+- `kind: streaming` → `stream` block **MUST** exist
 
 ---
 
@@ -182,7 +148,7 @@ Implementations MUST NOT:
 
 ### 9.1 Verifiable guarantees
 - MUST be mechanically testable
-- MUST include a linked test case (`test:`)
+- MUST include linked test case (`test:`)
 
 ### 9.2 Aspirational guarantees
 - MAY not be exhaustively provable
@@ -221,13 +187,19 @@ requires:
     guarantees_assumed:
       - "connection authenticated before use"
       - "connection timeout enforced"
+    failurePolicy:
+      mode: fail-closed | fail-open | degraded
+      timeoutMs: 3000
+      mapErrors:
+        DEP_TIMEOUT: UPSTREAM_TIMEOUT
 ```
 
 Rules:
 
 - `guarantees_assumed` defines trust boundary between components
-- Consumers MUST treat those guarantees as preconditions for dependent guarantees
-- Circular dependency chains SHOULD be avoided
+- Dependency failures observable at boundary MUST map to locally declared error codes
+- Raw dependency/internal error codes MUST NOT cross boundary undeclared
+- If `mode: degraded`, degraded behavior MUST be declared and tested
 
 ---
 
@@ -292,3 +264,120 @@ Contract quality MUST balance precision and readability:
 - MUST remain machine-parseable in one pass
 
 This preserves low contract reading cost while enforcing boundary guarantees.
+
+---
+
+## Appendix A — Normative Examples
+
+### A.1 Minimal conformant stateful contract
+
+```yaml
+spec_version: "1.0.0"
+component: CounterComponent
+version: 1.0.0
+kind: stateful
+
+lifecycle:
+  status: stable
+  since: "2026-03-29"
+
+description: "Bounded integer counter"
+instructions: "Use get before increment/decrement"
+
+input:
+  increment:
+    type: object
+    additionalProperties: false
+    properties:
+      amount:
+        type: integer
+        minimum: 1
+        default: 1
+    required: []
+
+output:
+  type: object
+  additionalProperties: false
+  properties:
+    value:
+      type: integer
+  required: [value]
+
+state:
+  type: object
+  properties:
+    value: { type: integer, default: 0 }
+    min: { type: integer, default: -2147483648 }
+    max: { type: integer, default: 2147483647 }
+
+errors:
+  COUNTER_OVERFLOW: { retryable: false, description: "max exceeded" }
+
+policies:
+  idempotency: not-required
+  timeoutMs: 100
+
+sideEffects:
+  allowed: []
+  forbidden: [network, filesystem, database]
+
+guarantees:
+  verifiable:
+    - operation: increment
+      assertion: value_increases_by_amount
+      test: counter.test.ts#increments_by_specified_amount
+  aspirational:
+    - statement: "only declared error codes cross boundary"
+      enforcement: catch-all error wrapper
+
+annotations:
+  increment: { readOnly: false, destructive: false, idempotent: false, openWorld: false }
+```
+
+### A.2 Async contract fragment
+
+```yaml
+kind: async
+async:
+  completion: required
+  delivery: at-least-once
+  ordering: per-key
+  timeoutMs: 30000
+  cancellation:
+    supported: true
+    semantics: best-effort
+```
+
+### A.3 Streaming contract fragment
+
+```yaml
+kind: streaming
+stream:
+  messageSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      line: { type: string }
+      stream: { type: string }
+    required: [line, stream]
+  terminalEvents: [completed, failed, cancelled]
+  ordering: per-key
+  backpressure: buffer
+  replay: from-offset
+```
+
+### A.4 Composition with failure mapping
+
+```yaml
+requires:
+  - component: SSHConnectionPool
+    version: ">=1.0.0"
+    guarantees_assumed:
+      - "connection authenticated before use"
+    failurePolicy:
+      mode: fail-closed
+      timeoutMs: 3000
+      mapErrors:
+        DEP_TIMEOUT: UPSTREAM_TIMEOUT
+        DEP_UNAVAILABLE: DEPENDENCY_UNAVAILABLE
+```

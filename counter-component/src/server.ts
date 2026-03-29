@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { fileURLToPath } from "node:url";
 import { createCounter } from "./counter.js";
 import {
+  assertSupportedForCounter,
   getDefaultState,
   getErrorInfo,
   getOperationAnnotations,
@@ -13,6 +14,7 @@ import {
 import { CounterError } from "./types.js";
 
 const contract = loadContract();
+assertSupportedForCounter(contract);
 const rawContractText = loadRawContractText();
 const counter = createCounter(getDefaultState(contract));
 

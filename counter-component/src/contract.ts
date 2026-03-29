@@ -51,52 +51,120 @@ const requiresSchema = z.array(
     component: z.string(),
     version: z.string(),
     guarantees_assumed: z.array(z.string()),
+    failurePolicy: z
+      .object({
+        mode: z.enum(["fail-closed", "fail-open", "degraded"]),
+        timeoutMs: z.number().int().positive(),
+        mapErrors: z.record(z.string(), z.string()),
+      })
+      .optional(),
   })
 );
 
-const contractSchema = z.object({
-  spec_version: z.string(),
-  component: z.string(),
-  version: z.string(),
-  kind: z.enum(["stateless", "stateful", "async", "streaming"]),
-  description: z.string(),
-  instructions: z.string(),
-  input: z.record(z.string(), objectSchema),
-  output: objectSchema,
-  state: z
+const asyncSchema = z.object({
+  completion: z.enum(["required", "optional"]),
+  delivery: z.enum(["at-most-once", "at-least-once", "exactly-once"]),
+  ordering: z.enum(["none", "per-key", "global"]),
+  maxInFlight: z.number().int().positive().optional(),
+  timeoutMs: z.number().int().positive(),
+  cancellation: z.object({
+    supported: z.boolean(),
+    semantics: z.enum(["best-effort", "guaranteed"]),
+  }),
+});
+
+const streamSchema = z.object({
+  messageSchema: objectSchema,
+  terminalEvents: z.array(z.enum(["completed", "failed", "cancelled"])),
+  ordering: z.enum(["none", "per-key", "global"]),
+  backpressure: z.enum(["drop", "buffer", "block", "error"]),
+  replay: z.enum(["none", "from-offset", "from-timestamp"]).optional(),
+  cancellation: z
     .object({
-      type: z.literal("object"),
-      properties: z.object({
-        value: z.object({ type: z.literal("integer"), default: z.number() }),
-        min: z.object({ type: z.literal("integer"), default: z.number() }),
-        max: z.object({ type: z.literal("integer"), default: z.number() }),
-      }),
+      supported: z.boolean(),
+      semantics: z.enum(["best-effort", "guaranteed"]),
     })
     .optional(),
-  errors: z.record(
-    z.string(),
-    z.object({ retryable: z.boolean(), description: z.string() })
-  ),
-  policies: z.object({
-    idempotency: z.string(),
-    timeoutMs: z.number(),
-  }),
-  sideEffects: z.object({
-    allowed: z.array(z.string()),
-    forbidden: z.array(z.string()),
-  }),
-  guarantees: guaranteesSchema,
-  annotations: z.record(
-    z.string(),
-    z.object({
-      readOnly: z.boolean(),
-      destructive: z.boolean(),
-      idempotent: z.boolean(),
-      openWorld: z.boolean(),
-    })
-  ),
-  requires: requiresSchema.optional(),
 });
+
+const contractSchema = z
+  .object({
+    spec_version: z.string(),
+    component: z.string(),
+    version: z.string(),
+    kind: z.enum(["stateless", "stateful", "async", "streaming"]),
+    description: z.string(),
+    instructions: z.string(),
+    input: z.record(z.string(), objectSchema),
+    output: objectSchema,
+    state: z
+      .object({
+        type: z.literal("object"),
+        properties: z.object({
+          value: z.object({ type: z.literal("integer"), default: z.number() }),
+          min: z.object({ type: z.literal("integer"), default: z.number() }),
+          max: z.object({ type: z.literal("integer"), default: z.number() }),
+        }),
+      })
+      .optional(),
+    async: asyncSchema.optional(),
+    stream: streamSchema.optional(),
+    errors: z.record(
+      z.string(),
+      z.object({ retryable: z.boolean(), description: z.string() })
+    ),
+    policies: z.object({
+      idempotency: z.string(),
+      timeoutMs: z.number(),
+    }),
+    sideEffects: z.object({
+      allowed: z.array(z.string()),
+      forbidden: z.array(z.string()),
+    }),
+    guarantees: guaranteesSchema,
+    annotations: z.record(
+      z.string(),
+      z.object({
+        readOnly: z.boolean(),
+        destructive: z.boolean(),
+        idempotent: z.boolean(),
+        openWorld: z.boolean(),
+      })
+    ),
+    lifecycle: z
+      .object({
+        status: z.enum(["draft", "stable", "deprecated"]),
+        since: z.string(),
+        replaces: z.string().optional(),
+      })
+      .optional(),
+    requires: requiresSchema.optional(),
+  })
+  .superRefine((contract, ctx) => {
+    if (contract.kind === "stateful" && !contract.state) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["state"],
+        message: "state is required when kind is stateful",
+      });
+    }
+
+    if (contract.kind === "async" && !contract.async) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["async"],
+        message: "async block is required when kind is async",
+      });
+    }
+
+    if (contract.kind === "streaming" && !contract.stream) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stream"],
+        message: "stream block is required when kind is streaming",
+      });
+    }
+  });
 
 export type LoadedContract = z.infer<typeof contractSchema> & ContractDefinition;
 
@@ -107,6 +175,14 @@ export function loadRawContractText(): string {
 export function loadContract(): LoadedContract {
   const parsed = YAML.parse(loadRawContractText());
   return contractSchema.parse(parsed) as LoadedContract;
+}
+
+export function assertSupportedForCounter(contract: LoadedContract): void {
+  if (contract.kind !== "stateful") {
+    throw new Error(
+      `Counter reference implementation currently supports only kind=stateful, received kind=${contract.kind}`
+    );
+  }
 }
 
 export function getDefaultState(contract: LoadedContract): CounterState {
