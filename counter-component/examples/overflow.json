@@ -1,0 +1,13 @@
+{
+  "input": {
+    "amount": 1
+  },
+  "error": {
+    "code": "COUNTER_OVERFLOW",
+    "message": "Increment by 1 would exceed max 100",
+    "retryable": false
+  },
+  "context": {
+    "state_before": { "value": 100, "min": -2147483648, "max": 100 }
+  }
+}

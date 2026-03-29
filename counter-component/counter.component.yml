@@ -1,0 +1,122 @@
+component: CounterComponent
+version: 1.0.0
+kind: stateful
+
+description: >
+  A simple bounded integer counter.
+  Supports increment, decrement, get, and reset operations.
+  Counter value is bounded between min and max.
+
+instructions: >
+  Use counter_get to check the current value before deciding to increment or decrement.
+  The counter has upper and lower bounds — check the error response if an operation fails.
+
+input:
+  increment:
+    type: object
+    additionalProperties: false
+    properties:
+      amount:
+        type: integer
+        minimum: 1
+        default: 1
+        description: Amount to increment by
+    required: []
+
+  decrement:
+    type: object
+    additionalProperties: false
+    properties:
+      amount:
+        type: integer
+        minimum: 1
+        default: 1
+        description: Amount to decrement by
+    required: []
+
+  get:
+    type: object
+    additionalProperties: false
+    properties: {}
+    required: []
+
+  reset:
+    type: object
+    additionalProperties: false
+    properties: {}
+    required: []
+
+output:
+  type: object
+  additionalProperties: false
+  required:
+    - value
+  properties:
+    value:
+      type: integer
+      description: Current counter value after operation
+
+state:
+  type: object
+  properties:
+    value:
+      type: integer
+      default: 0
+    min:
+      type: integer
+      default: -2147483648
+    max:
+      type: integer
+      default: 2147483647
+
+errors:
+  COUNTER_OVERFLOW:
+    retryable: false
+    description: Increment would exceed maximum value
+  COUNTER_UNDERFLOW:
+    retryable: false
+    description: Decrement would go below minimum value
+
+policies:
+  idempotency: not-required
+  timeoutMs: 100
+
+sideEffects:
+  allowed: []
+  forbidden:
+    - network
+    - filesystem
+    - database
+
+guarantees:
+  success:
+    - output.value is always an integer within [state.min, state.max]
+    - get never modifies state
+    - reset always sets value to 0
+    - increment increases value by exactly the requested amount
+    - decrement decreases value by exactly the requested amount
+  failure:
+    - state is never modified on error
+    - only declared error codes may be returned
+
+annotations:
+  increment:
+    readOnly: false
+    destructive: false
+    idempotent: false
+    openWorld: false
+  decrement:
+    readOnly: false
+    destructive: false
+    idempotent: false
+    openWorld: false
+  get:
+    readOnly: true
+    destructive: false
+    idempotent: true
+    openWorld: false
+  reset:
+    readOnly: false
+    destructive: true
+    idempotent: true
+    openWorld: false
