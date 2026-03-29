@@ -6,34 +6,18 @@ import {
   IncrementInput,
 } from "./types.js";
 
-const DEFAULT_STATE: CounterState = {
-  value: 0,
-  min: -2147483648,
-  max: 2147483647,
-};
-
-export function createCounter(
-  initial?: Partial<CounterState>
-): {
+export function createCounter(initial: CounterState): {
   increment: (input?: IncrementInput) => CounterOutput;
   decrement: (input?: DecrementInput) => CounterOutput;
   get: () => CounterOutput;
   reset: () => CounterOutput;
   state: () => CounterState;
 } {
-  const state: CounterState = { ...DEFAULT_STATE, ...initial };
+  const state: CounterState = { ...initial };
 
   return {
     increment(input?: IncrementInput): CounterOutput {
       const amount = input?.amount ?? 1;
-
-      if (amount < 1 || !Number.isInteger(amount)) {
-        throw new CounterError(
-          "COUNTER_OVERFLOW",
-          "amount must be a positive integer",
-          false
-        );
-      }
 
       if (state.value > state.max - amount) {
         throw new CounterError(
@@ -49,14 +33,6 @@ export function createCounter(
 
     decrement(input?: DecrementInput): CounterOutput {
       const amount = input?.amount ?? 1;
-
-      if (amount < 1 || !Number.isInteger(amount)) {
-        throw new CounterError(
-          "COUNTER_UNDERFLOW",
-          "amount must be a positive integer",
-          false
-        );
-      }
 
       if (state.value < state.min + amount) {
         throw new CounterError(

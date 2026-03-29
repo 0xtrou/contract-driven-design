@@ -1,100 +1,104 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { z } from "zod";
 import { createCounter } from "./counter.js";
+import {
+  getDefaultState,
+  getErrorInfo,
+  getOperationAnnotations,
+  getOperationInputSchema,
+  loadContract,
+} from "./contract.js";
 import { CounterError } from "./types.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const contractPath = join(__dirname, "..", "counter.component.yml");
-const contractYaml = readFileSync(contractPath, "utf-8");
+const contract = loadContract();
+const counter = createCounter(getDefaultState(contract));
 
-const counter = createCounter();
+function textResult(payload: unknown, isError = false) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(payload) }],
+    isError,
+  };
+}
 
 export function buildServer(): McpServer {
   const server = new McpServer({
-    name: "counter-component",
-    version: "1.0.0",
+    name: contract.component,
+    version: contract.version,
   });
 
   server.tool(
     "counter_increment",
-    "Increment the counter. Returns the new value.",
-    { amount: z.number().int().min(1).optional().default(1) },
-    async ({ amount }) => {
+    "Increment the counter.",
+    getOperationInputSchema(contract, "increment"),
+    {
+      readOnlyHint: getOperationAnnotations(contract, "increment").readOnly,
+      destructiveHint: getOperationAnnotations(contract, "increment").destructive,
+      idempotentHint: getOperationAnnotations(contract, "increment").idempotent,
+      openWorldHint: getOperationAnnotations(contract, "increment").openWorld,
+    },
+    async (input) => {
       try {
-        const result = counter.increment({ amount });
-        return {
-          content: [{ type: "text", text: JSON.stringify(result) }],
-          isError: false,
-        };
+        return textResult(counter.increment(input));
       } catch (e) {
         const err = e as CounterError;
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ code: err.code, message: err.message, retryable: err.retryable }),
-            },
-          ],
-          isError: true,
-        };
+        const info = getErrorInfo(contract, err.code);
+        return textResult(
+          { code: err.code, message: err.message, retryable: info.retryable },
+          true
+        );
       }
     }
   );
 
   server.tool(
     "counter_decrement",
-    "Decrement the counter. Returns the new value.",
-    { amount: z.number().int().min(1).optional().default(1) },
-    async ({ amount }) => {
+    "Decrement the counter.",
+    getOperationInputSchema(contract, "decrement"),
+    {
+      readOnlyHint: getOperationAnnotations(contract, "decrement").readOnly,
+      destructiveHint: getOperationAnnotations(contract, "decrement").destructive,
+      idempotentHint: getOperationAnnotations(contract, "decrement").idempotent,
+      openWorldHint: getOperationAnnotations(contract, "decrement").openWorld,
+    },
+    async (input) => {
       try {
-        const result = counter.decrement({ amount });
-        return {
-          content: [{ type: "text", text: JSON.stringify(result) }],
-          isError: false,
-        };
+        return textResult(counter.decrement(input));
       } catch (e) {
         const err = e as CounterError;
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ code: err.code, message: err.message, retryable: err.retryable }),
-            },
-          ],
-          isError: true,
-        };
+        const info = getErrorInfo(contract, err.code);
+        return textResult(
+          { code: err.code, message: err.message, retryable: info.retryable },
+          true
+        );
       }
     }
   );
 
   server.tool(
     "counter_get",
-    "Get the current counter value. Read-only, no side effects.",
-    {},
-    async () => {
-      const result = counter.get();
-      return {
-        content: [{ type: "text", text: JSON.stringify(result) }],
-        isError: false,
-      };
-    }
+    "Get the current counter value.",
+    getOperationInputSchema(contract, "get"),
+    {
+      readOnlyHint: getOperationAnnotations(contract, "get").readOnly,
+      destructiveHint: getOperationAnnotations(contract, "get").destructive,
+      idempotentHint: getOperationAnnotations(contract, "get").idempotent,
+      openWorldHint: getOperationAnnotations(contract, "get").openWorld,
+    },
+    async () => textResult(counter.get())
   );
 
   server.tool(
     "counter_reset",
-    "Reset the counter to zero. Idempotent.",
-    {},
-    async () => {
-      const result = counter.reset();
-      return {
-        content: [{ type: "text", text: JSON.stringify(result) }],
-        isError: false,
-      };
-    }
+    "Reset the counter to zero.",
+    getOperationInputSchema(contract, "reset"),
+    {
+      readOnlyHint: getOperationAnnotations(contract, "reset").readOnly,
+      destructiveHint: getOperationAnnotations(contract, "reset").destructive,
+      idempotentHint: getOperationAnnotations(contract, "reset").idempotent,
+      openWorldHint: getOperationAnnotations(contract, "reset").openWorld,
+    },
+    async () => textResult(counter.reset())
   );
 
   server.resource(
@@ -106,7 +110,7 @@ export function buildServer(): McpServer {
         {
           uri: "counter://contract",
           mimeType: "application/yaml",
-          text: contractYaml,
+          text: JSON.stringify(contract, null, 2),
         },
       ],
     })
@@ -126,6 +130,18 @@ export function buildServer(): McpServer {
       ],
     })
   );
+
+  server.prompt("counter_usage", contract.instructions, async () => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: contract.instructions,
+        },
+      },
+    ],
+  }));
 
   return server;
 }

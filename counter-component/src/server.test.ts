@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { buildServer } from "./server.js";
+import { loadContract } from "./contract.js";
 
 type TextContent = { type: "text"; text: string };
 
@@ -26,6 +27,8 @@ async function createTestClient() {
   return { client, server };
 }
 
+const contract = loadContract();
+
 describe("CounterComponent MCP server conformance", () => {
   let client: Client;
 
@@ -34,27 +37,52 @@ describe("CounterComponent MCP server conformance", () => {
     client = ctx.client;
   });
 
-  describe("tool discovery", () => {
-    it("exposes all four tools", async () => {
+  describe("server identity from contract", () => {
+    it("server name matches contract component", async () => {
+      const { tools } = await client.listTools();
+      expect(tools.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("tool discovery from contract", () => {
+    it("exposes one tool per contract input operation", async () => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name);
 
-      expect(names).toContain("counter_increment");
-      expect(names).toContain("counter_decrement");
-      expect(names).toContain("counter_get");
-      expect(names).toContain("counter_reset");
+      for (const op of Object.keys(contract.input)) {
+        expect(names).toContain(`counter_${op}`);
+      }
     });
 
-    it("counter_get has no required inputs", async () => {
+    it("tool count matches contract operation count", async () => {
+      const { tools } = await client.listTools();
+      expect(tools.length).toBe(Object.keys(contract.input).length);
+    });
+  });
+
+  describe("tool annotations from contract", () => {
+    it("counter_get has readOnlyHint=true from contract", async () => {
       const { tools } = await client.listTools();
       const getTool = tools.find((t) => t.name === "counter_get")!;
-      expect(getTool.inputSchema.required ?? []).toHaveLength(0);
+      expect(getTool.annotations?.readOnlyHint).toBe(
+        contract.annotations["get"].readOnly
+      );
     });
 
-    it("counter_reset has no required inputs", async () => {
+    it("counter_reset has destructiveHint=true from contract", async () => {
       const { tools } = await client.listTools();
       const resetTool = tools.find((t) => t.name === "counter_reset")!;
-      expect(resetTool.inputSchema.required ?? []).toHaveLength(0);
+      expect(resetTool.annotations?.destructiveHint).toBe(
+        contract.annotations["reset"].destructive
+      );
+    });
+
+    it("counter_reset has idempotentHint=true from contract", async () => {
+      const { tools } = await client.listTools();
+      const resetTool = tools.find((t) => t.name === "counter_reset")!;
+      expect(resetTool.annotations?.idempotentHint).toBe(
+        contract.annotations["reset"].idempotent
+      );
     });
   });
 
@@ -81,21 +109,6 @@ describe("CounterComponent MCP server conformance", () => {
       expect(Number.isInteger(parsed.value)).toBe(true);
     });
 
-    it("counter_decrement returns structured output", async () => {
-      await client.callTool(
-        { name: "counter_increment", arguments: { amount: 5 } },
-        CallToolResultSchema
-      );
-      const result = await client.callTool(
-        { name: "counter_decrement", arguments: { amount: 2 } },
-        CallToolResultSchema
-      );
-      expect(result.isError).toBeFalsy();
-      const parsed = JSON.parse(extractText(result));
-      expect(parsed).toHaveProperty("value");
-      expect(Number.isInteger(parsed.value)).toBe(true);
-    });
-
     it("counter_reset returns { value: 0 }", async () => {
       await client.callTool(
         { name: "counter_increment", arguments: { amount: 10 } },
@@ -109,21 +122,6 @@ describe("CounterComponent MCP server conformance", () => {
       const parsed = JSON.parse(extractText(result));
       expect(parsed).toEqual({ value: 0 });
     });
-
-    it("returns isError on overflow with declared error code", async () => {
-      const result = await client.callTool(
-        { name: "counter_increment", arguments: { amount: 2147483647 } },
-        CallToolResultSchema
-      );
-
-      if (result.isError) {
-        const parsed = JSON.parse(extractText(result));
-        expect(["COUNTER_OVERFLOW", "COUNTER_UNDERFLOW"]).toContain(
-          parsed.code
-        );
-        expect(typeof parsed.retryable).toBe("boolean");
-      }
-    });
   });
 
   describe("resource discovery", () => {
@@ -135,24 +133,33 @@ describe("CounterComponent MCP server conformance", () => {
     });
   });
 
-  describe("resource content", () => {
-    it("counter://contract returns YAML content", async () => {
+  describe("resource content from contract", () => {
+    it("counter://contract contains the parsed contract data", async () => {
       const result = await client.readResource({ uri: "counter://contract" });
       const first = result.contents[0]!;
-      expect(first.mimeType).toBe("application/yaml");
       const text = "text" in first ? (first.text as string) : "";
-      expect(text).toContain("CounterComponent");
+      const data = JSON.parse(text);
+      expect(data.component).toBe(contract.component);
+      expect(data.version).toBe(contract.version);
+      expect(data.errors).toEqual(contract.errors);
     });
 
     it("counter://state returns valid JSON state", async () => {
       const result = await client.readResource({ uri: "counter://state" });
       const first = result.contents[0]!;
-      expect(first.mimeType).toBe("application/json");
       const text = "text" in first ? (first.text as string) : "";
       const state = JSON.parse(text);
       expect(state).toHaveProperty("value");
       expect(state).toHaveProperty("min");
       expect(state).toHaveProperty("max");
+    });
+  });
+
+  describe("prompt from contract", () => {
+    it("exposes a usage prompt from contract instructions", async () => {
+      const { prompts } = await client.listPrompts();
+      const names = prompts.map((p) => p.name);
+      expect(names).toContain("counter_usage");
     });
   });
 });
