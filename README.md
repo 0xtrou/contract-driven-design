@@ -1,48 +1,158 @@
-# Contract-Driven Design
+# Contract-Driven Design — Philosophy
 
 > **We don't judge how you build. We enforce what you commit to.**
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
 ## The Problem
 
-Consumers of a component — humans, agents, CI pipelines, documentation systems — currently infer behavior from source code.
+Everyone who touches your code — humans, agents, CI pipelines, documentation tools — currently *infers* what a component does.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Consumer needs to understand "capturePayment()"        │
-│                                                         │
-│  ❌ Without a contract:                                 │
-│     → read implementation                               │
-│     → trace dependencies                                │
-│     → infer error behavior                              │
-│     → hope nothing is hidden                            │
-│     → build a mental model that may be wrong            │
-└─────────────────────────────────────────────────────────┘
-```
+They read source code. They trace dependencies. They guess at error behavior. They build mental models that may be wrong.
+
+Those models diverge. Drift accumulates. Trust erodes.
 
 ---
 
 ## The Solution
 
-**Every component commits to a contract.** Behavior is explicit at the boundary.
+**Every component publishes a contract.**
+
+One file. Machine-readable. Behavioral commitments declared at the boundary.
+
+Consumers read the contract — not the source code. The contract becomes the single source of truth for *all* consumers equally. There is no primary consumer. There is only the contract.
+
+---
+
+## Core Beliefs
+
+### 1. Boundaries over internals
+
+What happens inside your component is your business. How you structure code, what patterns you use, how clean or messy it is — none of that is our concern.
+
+What happens *at the boundary* is everyone's concern. That's where commitments live. That's where enforcement happens.
+
+### 2. Contracts benefit everyone
+
+Agents use contracts to avoid source-code archaeology.  
+Humans use contracts as living documentation that never goes stale.  
+CI uses contracts as the gate for deployment.  
+Runtime systems use contracts to validate behavior on the fly.
+
+The same artifact serves every consumer. No divergence. No drift.
+
+### 3. Verifiable vs aspirational
+
+Some guarantees can be mechanically tested. Others rely on convention, review, or runtime wrapping.
+
+We distinguish them explicitly. Verifiable guarantees link to tests. Aspirational guarantees declare their enforcement mechanism.
+
+Both matter. Honesty about which is which matters more.
+
+### 4. Composition is declarative
+
+Components depend on other components. The contract declares those dependencies and which guarantees from the dependency contract are assumed.
+
+This creates a computable trust graph. Agents can traverse it. Humans can reason about it.
+
+### 5. Protocol-agnostic, not protocol-locked
+
+The contract is the authority. MCP, OpenAPI, gRPC, CLI, SDK — these are all *projections* of the contract into a runtime protocol.
+
+The contract drives the projection. Never the reverse.
+
+---
+
+## The Equation
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Consumer needs to understand "CapturePaymentComponent" │
-│                                                         │
-│  ✅ With a contract:                                    │
-│     → read component.yml (one file)                     │
-│     → know inputs, outputs, errors, side effects        │
-│     → know which guarantees are tested vs aspirational  │
-│     → know composition dependencies                     │
-│     → source reading is not required                    │
-└─────────────────────────────────────────────────────────┘
+Total consumer cost = contract reading cost +
+                      residual hidden behavior +
+                      boundary leaks +
+                      undefined failures
 ```
 
-Contracts benefit every consumer equally. There is no primary consumer — there is only the contract.
+The design goal is to minimize all four terms:
+
+- **Contract reading cost** — keep contracts short (2-minute rule)
+- **Residual hidden behavior** — declare it or it doesn't exist
+- **Boundary leaks** — enforce the boundary mechanically
+- **Undefined failures** — every failure has a declared error code
+
+---
+
+## What Is a Component?
+
+A component is the smallest unit that owns its own **state lifecycle** and **error boundary**.
+
+If two operations share state and their failures can affect each other — they are one component.  
+If they don't — they are separate components.
+
+**Correct:** `increment`, `decrement`, `get`, `reset` are one component (shared counter state).  
+**Anti-pattern:** One mega-contract per service.  
+**Anti-pattern:** One contract per function.
+
+---
+
+## Development Paths
+
+You can write contracts in two ways. Both are valid.
+
+### Contract-first path
+
+1. Draft the contract
+2. Implement to match it
+3. Run conformance
+4. Iterate if gaps found
+
+### Extraction path
+
+1. Write implementation
+2. Extract contract from observed behavior
+3. Run conformance + close gaps
+4. Stabilize contract
+
+The conformance gate is identical for both paths. The spec does not judge how you arrive at the contract — only that you honor it.
+
+---
+
+## The Release Gate
+
+A component is not done unless:
+
+- contract exists
+- conformance tests pass (programmatically loading the contract)
+- projection surfaces match the contract
+- verifiable guarantees have linked tests
+- aspirational guarantees declare enforcement mechanisms
+
+This is the quality gate. Everything else is optional.
+
+---
+
+## What Is "Behavior"?
+
+Behavior is observable boundary semantics across:
+
+1. **Input acceptance** — what the boundary accepts or rejects
+2. **Output shape** — what the boundary returns on success
+3. **Error taxonomy** — what error codes escape, with retryability
+4. **Side-effect set** — what external systems the component may touch
+5. **State transitions** — how state changes (for stateful components)
+6. **Timing/resource guarantees** — only if declared in policies
+7. **Determinism scope** — whether repeated calls produce identical outputs (if declared)
+
+Anything not declared here is out of scope unless explicitly added.
+
+---
+
+## Complexity Discipline
+
+If your contract is longer than your implementation, you have over-specified.  
+If a consumer cannot read your contract in under 2 minutes, you have over-specified.  
+If an agent cannot parse your contract in one pass, you have under-structured it.
+
+The goal is lightweight, not ceremonial.
 
 ---
 
@@ -50,28 +160,24 @@ Contracts benefit every consumer equally. There is no primary consumer — there
 
 > Observable behavior at the component boundary must conform to the declared contract.
 
-| Inside the component | At the boundary |
-|---|---|
-| Any code style | Declared input schema |
-| Any algorithm | Declared output shape |
-| Any level of mess | Declared error taxonomy |
-| No judgment | Declared side effects and guarantees |
+Inside the boundary: freedom.  
+At the boundary: accountability.
 
-**We judge commitments. Not internals.**
+**Commitments win.**
 
 ---
 
-## Key Concepts
+## Specification
 
-| Concept | What it means |
-|---|---|
-| **Contract-first** | The contract is the single source of truth for all consumers |
-| **Boundary enforcement** | Only boundary behavior is judged — internals are free |
-| **Split guarantees** | Verifiable (tested) vs aspirational (convention-enforced) |
-| **Composition model** | `requires` declares dependency contracts and assumed guarantees |
-| **Protocol-projectable** | MCP, OpenAPI, gRPC, CLI, SDK — all derived from contract |
-| **Component granularity** | Smallest unit that owns its own state lifecycle and error boundary |
-| **Contract cost** | Readable in <2 min, shorter than the implementation |
+The normative specification lives in [`SPEC.md`](./SPEC.md).
+
+That document contains:
+- JSON Schema for contract validation
+- MUST / MUST NOT conformance language
+- Precise projection rules
+- Conformance test requirements
+
+This document is philosophy. That document is specification.
 
 ---
 
@@ -84,105 +190,8 @@ npm test              # boundary conformance suite
 npm run start:stdio   # run as MCP server (reference projection)
 ```
 
-Full philosophy: [`SPECS.md`](./SPECS.md)
-
----
-
-## Contract Anatomy
-
-```yaml
-spec_version: 1.0.0
-component: CounterComponent
-version: 1.0.0
-kind: stateful
-
-input:
-  increment:
-    type: object
-    properties:
-      amount: { type: integer, minimum: 1 }
-
-output:
-  type: object
-  required: [value]
-  properties:
-    value: { type: integer }
-
-errors:
-  COUNTER_OVERFLOW:
-    retryable: false
-    description: Increment would exceed maximum value
-
-sideEffects:
-  allowed: []
-  forbidden: [network, filesystem, database]
-
-guarantees:
-  verifiable:
-    - operation: get
-      assertion: state_unchanged_after_call
-      test: counter.test.ts#get_does_not_change_observable_value
-  aspirational:
-    - statement: "only declared error codes cross the boundary"
-      enforcement: catch-all error wrapper + error taxonomy test
-
-annotations:
-  get:
-    readOnly: true
-    idempotent: true
-    destructive: false
-    openWorld: false
-```
-
----
-
-## Why This Matters
-
-- **For humans** — contracts are the map; internals can change freely if the boundary holds
-- **For agents** — read 1 file, know all commitments; no source crawling
-- **For CI** — conformance check is one command; drift is mechanically prevented
-- **For documentation** — the contract IS the docs; always current, never stale
-
----
-
-## Protocol Projections
-
-The contract is protocol-agnostic. It projects into any runtime interface:
-
-| Protocol | Projection |
-|---|---|
-| MCP | Tools, resources, prompts |
-| OpenAPI | Paths, schemas, error responses |
-| gRPC | Services, messages |
-| CLI | Commands, flags, exit codes |
-| SDK | Typed functions, error classes |
-
-MCP is the reference projection in this repo. It is not the required projection.
-
----
-
-## Roadmap
-
-- [ ] `cddc check` — contract conformance CLI
-- [ ] Breaking-change classifier for CI
-- [ ] `defineComponent()` — typed contract binding API
-- [ ] Contract registry / dependency resolution
-- [ ] `kind: streaming` and `kind: async` reference components
-
----
-
-## Philosophy
-
-Inside the boundary: build however you want.
-At the boundary: your commitments are law.
-
-> **Commitments win.**
-
----
-
-## License
-
-MIT
+Read the contract: `cat counter-component/counter.component.yml`  
+Read the full spec: [`SPEC.md`](./SPEC.md)
 
 ---
 
@@ -192,3 +201,8 @@ MIT
 - [Model Context Protocol](https://modelcontextprotocol.io) — Anthropic
 - [Clarity Language](https://docs.stacks.co/clarity/overview) — decidability as design principle
 - [Pact](https://docs.pact.io) — consumer-driven contract testing
+- [Semantic Versioning](https://semver.org) — standard versioning model
+
+---
+
+MIT License
