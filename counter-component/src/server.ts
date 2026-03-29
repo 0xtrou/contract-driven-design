@@ -8,10 +8,12 @@ import {
   getOperationAnnotations,
   getOperationInputSchema,
   loadContract,
+  loadRawContractText,
 } from "./contract.js";
 import { CounterError } from "./types.js";
 
 const contract = loadContract();
+const rawContractText = loadRawContractText();
 const counter = createCounter(getDefaultState(contract));
 
 function textResult(payload: unknown, isError = false) {
@@ -40,8 +42,8 @@ export function buildServer(): McpServer {
     async (input) => {
       try {
         return textResult(counter.increment(input));
-      } catch (e) {
-        const err = e as CounterError;
+      } catch (error) {
+        const err = error as CounterError;
         const info = getErrorInfo(contract, err.code);
         return textResult(
           { code: err.code, message: err.message, retryable: info.retryable },
@@ -64,8 +66,8 @@ export function buildServer(): McpServer {
     async (input) => {
       try {
         return textResult(counter.decrement(input));
-      } catch (e) {
-        const err = e as CounterError;
+      } catch (error) {
+        const err = error as CounterError;
         const info = getErrorInfo(contract, err.code);
         return textResult(
           { code: err.code, message: err.message, retryable: info.retryable },
@@ -110,7 +112,7 @@ export function buildServer(): McpServer {
         {
           uri: "counter://contract",
           mimeType: "application/yaml",
-          text: JSON.stringify(contract, null, 2),
+          text: rawContractText,
         },
       ],
     })
@@ -125,7 +127,7 @@ export function buildServer(): McpServer {
         {
           uri: "counter://state",
           mimeType: "application/json",
-          text: JSON.stringify(counter.state(), null, 2),
+          text: JSON.stringify(counter.get(), null, 2),
         },
       ],
     })

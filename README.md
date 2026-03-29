@@ -1,6 +1,6 @@
 # Contract-Driven Design
 
-> **Build software where agents are the primary consumer.**
+> **We don't judge how you build. We enforce what you commit to.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -14,7 +14,7 @@ AI agents currently need to **read entire codebases** to understand behavior.
 ┌─────────────────────────────────────────────────────────┐
 │  Agent needs to understand "capturePayment()"           │
 │                                                         │
-│  ❌ Current approach:                                   │
+│  ❌ Without a contract:                                 │
 │     → grep for function                                 │
 │     → read implementation                               │
 │     → trace dependencies                                │
@@ -29,31 +29,37 @@ This is fragile, token-expensive, and unreliable.
 
 ## The Solution
 
-**Every component publishes a contract.** Behavior is explicit at the boundary.
+**Every component commits to a contract.** Behavior is explicit at the boundary.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Agent needs to understand "CapturePaymentComponent"    │
 │                                                         │
-│  ✅ Contract-driven approach:                           │
+│  ✅ With a contract:                                    │
 │     → read component.yml (one file)                     │
 │     → know inputs, outputs, errors                      │
 │     → know side effects & guarantees                    │
-│     → no source reading required                        │
+│     → source reading is not required                    │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Core Principles
+## The Core Rule
 
-| Principle | Description |
-|-----------|-------------|
-| **Contract-First** | Define behavior before implementation |
-| **Blackbox Guarantees** | Interface alone is sufficient |
-| **MCP-Native** | Every component is an MCP server |
-| **Executable Specs** | Contracts are machine-readable YAML |
-| **Zero Hidden State** | All side effects are declared |
+> Observable behavior at the component boundary must conform to the declared contract.
+
+What this means in practice:
+
+| Inside the component | At the boundary |
+|---|---|
+| Any code style | Declared input schema |
+| Any algorithm | Declared output shape |
+| Any level of mess | Declared error taxonomy |
+| No judgment | Declared side effects |
+| Completely free | Declared annotations |
+
+**We judge commitments. Not internals.**
 
 ---
 
@@ -63,7 +69,7 @@ This is fragile, token-expensive, and unreliable.
 Need-to-read-repo = hidden behavior + boundary leaks + undefined failures
 ```
 
-**Design goal:** drive all three terms toward zero.
+Drive all three terms to zero. That's the whole philosophy.
 
 ---
 
@@ -71,28 +77,29 @@ Need-to-read-repo = hidden behavior + boundary leaks + undefined failures
 
 ### 1. Read the Spec
 
-The full philosophy lives in [`SPECS.md`](./SPECS.md).
+Full philosophy in [`SPECS.md`](./SPECS.md).
 
-### 2. Study the Reference
+### 2. Run the Reference
 
-`counter-component/` is a minimal working example:
+`counter-component/` is a working example:
 
 ```bash
 cd counter-component
 npm install
-npm test        # 28 tests pass
-npm run build   # zero type errors
+npm test           # boundary conformance suite
+npm run start:stdio  # run as MCP server
 ```
 
-### 3. Run as MCP Server
+### 3. Explore the MCP Surface
 
 ```bash
 npm run start:stdio
 ```
 
-The component exposes:
+Exposes:
 - 4 tools: `counter_increment`, `counter_decrement`, `counter_get`, `counter_reset`
 - 2 resources: `counter://contract`, `counter://state`
+- 1 prompt: `counter_usage`
 
 ---
 
@@ -102,14 +109,14 @@ The component exposes:
 .
 ├── SPECS.md                    # Full philosophy & specification
 ├── counter-component/          # Reference implementation
-│   ├── counter.component.yml   # Canonical contract
+│   ├── counter.component.yml   # Canonical contract — source of truth
 │   ├── src/
-│   │   ├── types.ts            # TypeScript types from contract
-│   │   ├── counter.ts          # Core logic
-│   │   ├── counter.test.ts     # Unit tests
-│   │   ├── server.ts           # MCP server
-│   │   └── server.test.ts      # MCP conformance tests
-│   ├── examples/               # Golden input/output pairs
+│   │   ├── contract.ts         # Contract loader & projection
+│   │   ├── counter.ts          # Implementation (internals — non-normative)
+│   │   ├── counter.test.ts     # Boundary conformance tests
+│   │   ├── server.ts           # MCP server (projected from contract)
+│   │   └── server.test.ts      # MCP boundary conformance tests
+│   ├── examples/               # Input/output examples
 │   └── README.md               # Component docs
 └── README.md                   # You are here
 ```
@@ -118,7 +125,7 @@ The component exposes:
 
 ## Contract Anatomy
 
-A minimal contract (`*.component.yml`):
+The contract is the only normative artifact. Implementation is irrelevant.
 
 ```yaml
 component: CounterComponent
@@ -154,12 +161,19 @@ sideEffects:
 
 guarantees:
   success:
-    - output.value is always an integer
+    - output.value is always an integer within declared bounds
     - get never modifies state
     - reset always sets value to 0
   failure:
     - state is never modified on error
     - only declared error codes may be returned
+
+annotations:
+  get:
+    readOnly: true
+    destructive: false
+    idempotent: true
+    openWorld: false
 ```
 
 ---
@@ -168,17 +182,17 @@ guarantees:
 
 ### For Agents
 
-- **Token efficiency**: Read 1 file, not 100
-- **Deterministic reasoning**: No hidden behavior
-- **Capability discovery**: Tools are self-describing
-- **Safe composition**: Boundaries are explicit
+- **Token efficiency** — read 1 file, not 100
+- **Deterministic reasoning** — no hidden behavior
+- **Safe consumption** — commitments are enforced, not hoped for
+- **Composability** — boundaries are explicit
 
 ### For Humans
 
-- **Faster onboarding**: Contracts are the map
-- **Safer refactoring**: Breaking changes are visible
-- **Better APIs**: Contracts force clarity
-- **Living documentation**: Spec is executable
+- **Faster onboarding** — the contract is the map
+- **Safe refactoring** — internals can change freely if boundary holds
+- **Breaking change detection** — diffs are classified automatically
+- **No ceremony** — write contract, write anything, prove it works
 
 ---
 
@@ -187,91 +201,79 @@ guarantees:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Agent-First Driven Design (AFDD)                       │
-│  "The primary consumer is an autonomous agent"          │
+│  "Agents are the primary consumer"                      │
 └─────────────────────────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Contract-Driven Components (CDC)                       │
-│  "Every component has a canonical contract artifact"    │
+│  "Components commit to boundary contracts"              │
 └─────────────────────────────────────────────────────────┘
 ```
 
-AFDD without CDC is ideology.
-CDC without AFDD is overhead.
+AFDD without CDC is ideology.  
+CDC without AFDD is overhead.  
 **Both are required.**
 
 ---
 
 ## MCP Projection
 
-Every contract projects into an MCP server:
+Contracts project into MCP servers automatically:
 
 | Contract | → | MCP |
 |----------|---|-----|
 | Operations | → | Tools |
-| Examples | → | Prompts |
-| State/Contract | → | Resources |
-| Errors | → | Structured payloads |
+| Instructions / Examples | → | Prompts |
+| Contract artifact / State | → | Resources |
+| Error taxonomy | → | Structured error payloads |
+| Annotations | → | Tool metadata hints |
 
-The contract is authority. MCP is projection.
+Contract is authority. MCP is projection.
 
 ---
 
 ## Non-Negotiable Rules
 
-1. No component without a contract
-2. No contract without tests
-3. No hidden side effects
-4. No undeclared error codes
-5. No breaking changes without major version bump
+1. No component ships without a contract
+2. No contract without boundary conformance evidence
+3. No undeclared error codes at the boundary
+4. No undeclared side effects
+5. No breaking changes without a major version bump
 6. No MCP surface that contradicts the contract
-7. No "done" status without conformance evidence
+7. No "done" without conformance evidence passing
 
 ---
 
 ## Roadmap
 
-- [ ] Contract linter (`npx agent-contract check`)
-- [ ] Breaking-change detector for CI
-- [ ] More reference components (HTTP client, data transformer, workflow orchestrator)
-- [ ] Contract registry prototype
-- [ ] TypeScript contract → MCP code generator
+- [ ] `cddc check` — contract conformance CLI
+- [ ] Breaking-change classifier for CI
+- [ ] `defineComponent()` — typed contract binding API
+- [ ] Contract registry
+- [ ] More reference components (effectful, workflow)
 
 ---
 
 ## Philosophy
 
-> Readable code is valuable.
-> Readable contracts are mandatory.
+Inside the boundary: build however you want.  
+At the boundary: your commitments are law.
 
-For humans, code explains *how*.
-For agents, contracts define *what is guaranteed*.
-
-**In contract-driven design, guarantees win.**
+> **Commitments win.**
 
 ---
 
 ## License
 
-MIT — see [LICENSE](./LICENSE) for details.
+MIT
 
 ---
 
 ## Acknowledgments
 
-This work builds on:
+Builds on:
 - [Model Context Protocol](https://modelcontextprotocol.io) — Anthropic
 - [Design by Contract](https://en.wikipedia.org/wiki/Design_by_contract) — Bertrand Meyer
-- [Pact](https://docs.pact.io) — Consumer-driven contracts
-- [OpenAPI](https://spec.openapis.org) — Interface definition
-
----
-
-<div align="center">
-
-**Contract-Driven Design**
-
-*Built for agents. Readable by humans.*
-
-</div>
+- [Clarity Language](https://docs.stacks.co/clarity/overview) — decidability as a design principle
+- [Pact](https://docs.pact.io) — consumer-driven contract testing

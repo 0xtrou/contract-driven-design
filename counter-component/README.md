@@ -1,87 +1,102 @@
 # Counter Component
 
-A minimal **contract-driven, MCP-native** counter component demonstrating the architecture.
+A minimal reference implementation of a **contract-driven, MCP-native** component.
+
+The internals are intentionally unremarkable. The point is the boundary.
+
+---
 
 ## Quick Start
 
 ```bash
-# Install dependencies
 npm install
-
-# Run tests
-npm test
-
-# Run as MCP server (stdio transport)
-npm run start:stdio
-
-# Or run with explicit transport
-node dist/server.js --transport http --port 3001
+npm test              # boundary conformance suite
+npm run start:stdio   # run as MCP server
 ```
+
+---
 
 ## Contract
 
-The component contract lives in [`counter.component.yml`](./counter.component.yml).
+The component's boundary commitments are declared in [`counter.component.yml`](./counter.component.yml).
 
-This defines:
-- **Capabilities**: `increment`, `decrement`, `get`, `reset`
-- **State**: A single integer counter with bounds
-- **Errors**: `COUNTER_OVERFLOW`, `COUNTER_UNDERFLOW`
-- **Side effects**: None (pure in-memory state)
+This file is the only normative artifact. It defines:
+
+- **Operations**: `increment`, `decrement`, `get`, `reset`
+- **Output**: `{ value: integer }` on every successful call
+- **Errors**: `COUNTER_OVERFLOW`, `COUNTER_UNDERFLOW` — typed, with retryability declared
+- **Side effects**: none permitted (`network`, `filesystem`, `database` all forbidden)
+- **State bounds**: integer counter with declared min/max defaults
+- **Annotations**: per-operation `readOnly`, `destructive`, `idempotent`, `openWorld`
+
+Internals are free to change. The contract is not.
+
+---
 
 ## MCP Surface
 
-When running, the component exposes itself as an MCP server with:
+The component projects itself as an MCP server derived from the contract:
 
 ### Tools
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `counter_increment` | Increment counter by 1 | `{ amount?: number }` | `{ value: number }` |
-| `counter_decrement` | Decrement counter by 1 | `{ amount?: number }` | `{ value: number }` |
-| `counter_get` | Get current value | `{}` | `{ value: number }` |
-| `counter_reset` | Reset to zero | `{}` | `{ value: number }` |
+
+| Tool | Contract operation |
+|------|--------------------|
+| `counter_increment` | `increment` |
+| `counter_decrement` | `decrement` |
+| `counter_get` | `get` |
+| `counter_reset` | `reset` |
+
+All tool metadata (input schemas, annotations) is derived from `counter.component.yml`.
 
 ### Resources
-| Resource | URI | Description |
-|----------|-----|-------------|
-| Contract | `counter://contract` | The YAML contract itself |
-| State | `counter://state` | Current counter state |
 
-## Testing
+| URI | Content |
+|-----|---------|
+| `counter://contract` | Parsed contract (JSON) |
+| `counter://state` | Current runtime state (JSON) |
+
+### Prompts
+
+| Name | Source |
+|------|--------|
+| `counter_usage` | `instructions` field from contract |
+
+---
+
+## Boundary Conformance Tests
+
+Tests prove the boundary honors the contract. Implementation details are not tested.
 
 ```bash
-# Run all tests
 npm test
-
-# Watch mode
-npm run test:watch
-
-# Single test file
-npx vitest run src/counter.test.ts
 ```
 
-## Architecture
+Three test suites:
 
-This component demonstrates:
+| File | What it tests |
+|------|---------------|
+| `contract.test.ts` | Contract loads and parses correctly |
+| `counter.test.ts` | Boundary commitments: output shape, error codes, state guarantees |
+| `server.test.ts` | MCP projection matches contract: tools, annotations, resources, prompts |
 
-1. **Contract-First**: `counter.component.yml` is the source of truth
-2. **MCP-Native**: Generated MCP server surface from contract
-3. **Test-Covered**: Contract conformance tests + property tests
-4. **Zero External Dependencies**: Pure in-memory state
+---
 
 ## File Structure
 
 ```
 counter-component/
-├── counter.component.yml    # Contract definition
+├── counter.component.yml   # Canonical contract — the only normative file
 ├── src/
-│   ├── types.ts             # TypeScript types from contract
-│   ├── counter.ts           # Core counter logic
-│   ├── counter.test.ts      # Unit tests
-│   ├── server.ts            # MCP server implementation
-│   └── server.test.ts       # MCP conformance tests
+│   ├── contract.ts         # Loads, validates, and projects the contract
+│   ├── types.ts            # TypeScript types for contract shape
+│   ├── counter.ts          # Implementation (illustrative — non-normative)
+│   ├── contract.test.ts    # Contract loading tests
+│   ├── counter.test.ts     # Boundary conformance tests
+│   ├── server.ts           # MCP server (projected from contract)
+│   └── server.test.ts      # MCP boundary conformance tests
 ├── examples/
-│   ├── increment.json       # Example: increment input/output
-│   └── overflow.json        # Example: overflow error
+│   ├── increment.json      # Successful operation example
+│   └── overflow.json       # Error boundary example
 ├── package.json
 ├── tsconfig.json
 └── vitest.config.ts

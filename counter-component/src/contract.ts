@@ -75,9 +75,12 @@ const contractSchema = z.object({
 
 export type LoadedContract = z.infer<typeof contractSchema> & ContractDefinition;
 
+export function loadRawContractText(): string {
+  return readFileSync(contractPath, "utf-8");
+}
+
 export function loadContract(): LoadedContract {
-  const file = readFileSync(contractPath, "utf-8");
-  const parsed = YAML.parse(file);
+  const parsed = YAML.parse(loadRawContractText());
   return contractSchema.parse(parsed) as LoadedContract;
 }
 

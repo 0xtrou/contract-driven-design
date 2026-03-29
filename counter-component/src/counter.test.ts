@@ -5,7 +5,15 @@ import { CounterError } from "./types.js";
 
 const contract = loadContract();
 
-describe("CounterComponent contract conformance", () => {
+function expectContractError(error: unknown) {
+  expect(error).toBeInstanceOf(CounterError);
+  const contractError = error as CounterError;
+  expect(Object.keys(contract.errors)).toContain(contractError.code);
+  expect(contractError.retryable).toBe(contract.errors[contractError.code].retryable);
+  return contractError;
+}
+
+describe("CounterComponent boundary conformance", () => {
   let counter: ReturnType<typeof createCounter>;
 
   beforeEach(() => {
@@ -13,18 +21,18 @@ describe("CounterComponent contract conformance", () => {
   });
 
   describe("get", () => {
-    it("returns initial value of 0", () => {
+    it("returns the current value", () => {
       expect(counter.get()).toEqual({ value: 0 });
     });
 
-    it("never modifies state", () => {
+    it("does not change the observable value", () => {
       counter.increment({ amount: 5 });
-      const before = counter.state();
+      const before = counter.get();
       counter.get();
       counter.get();
       counter.get();
-      const after = counter.state();
-      expect(before).toEqual(after);
+      const after = counter.get();
+      expect(after).toEqual(before);
     });
   });
 
@@ -44,16 +52,36 @@ describe("CounterComponent contract conformance", () => {
       expect(after - before).toBe(7);
     });
 
-    it("throws COUNTER_OVERFLOW when exceeding max", () => {
-      const c = createCounter({ ...getDefaultState(contract), value: 2147483647, max: 2147483647 });
-      expect(() => c.increment()).toThrowError(CounterError);
+    it("returns a declared error when exceeding max", () => {
+      const bounded = createCounter({
+        ...getDefaultState(contract),
+        value: 2147483647,
+        max: 2147483647,
+      });
+
+      try {
+        bounded.increment();
+        expect.fail("expected increment to fail");
+      } catch (error) {
+        const contractError = expectContractError(error);
+        expect(contractError.code).toBe("COUNTER_OVERFLOW");
+      }
     });
 
-    it("does not modify state on overflow", () => {
-      const c = createCounter({ ...getDefaultState(contract), value: 100, max: 100 });
-      const before = c.state();
-      expect(() => c.increment()).toThrowError(CounterError);
-      expect(c.state()).toEqual(before);
+    it("does not change the observable value on failure", () => {
+      const bounded = createCounter({
+        ...getDefaultState(contract),
+        value: 100,
+        max: 100,
+      });
+      const before = bounded.get();
+
+      try {
+        bounded.increment();
+      } catch {
+      }
+
+      expect(bounded.get()).toEqual(before);
     });
   });
 
@@ -76,16 +104,36 @@ describe("CounterComponent contract conformance", () => {
       expect(before - after).toBe(4);
     });
 
-    it("throws COUNTER_UNDERFLOW when going below min", () => {
-      const c = createCounter({ ...getDefaultState(contract), value: 0, min: 0 });
-      expect(() => c.decrement()).toThrowError(CounterError);
+    it("returns a declared error when going below min", () => {
+      const bounded = createCounter({
+        ...getDefaultState(contract),
+        value: 0,
+        min: 0,
+      });
+
+      try {
+        bounded.decrement();
+        expect.fail("expected decrement to fail");
+      } catch (error) {
+        const contractError = expectContractError(error);
+        expect(contractError.code).toBe("COUNTER_UNDERFLOW");
+      }
     });
 
-    it("does not modify state on underflow", () => {
-      const c = createCounter({ ...getDefaultState(contract), value: 0, min: 0 });
-      const before = c.state();
-      expect(() => c.decrement()).toThrowError(CounterError);
-      expect(c.state()).toEqual(before);
+    it("does not change the observable value on failure", () => {
+      const bounded = createCounter({
+        ...getDefaultState(contract),
+        value: 0,
+        min: 0,
+      });
+      const before = bounded.get();
+
+      try {
+        bounded.decrement();
+      } catch {
+      }
+
+      expect(bounded.get()).toEqual(before);
     });
   });
 
@@ -104,8 +152,8 @@ describe("CounterComponent contract conformance", () => {
     });
   });
 
-  describe("output shape", () => {
-    it("always returns { value: integer }", () => {
+  describe("output boundary", () => {
+    it("always returns { value: integer } on success", () => {
       for (const op of [
         () => counter.get(),
         () => counter.increment(),
@@ -119,51 +167,61 @@ describe("CounterComponent contract conformance", () => {
     });
   });
 
-  describe("bounded state", () => {
-    it("value stays within [min, max] across operations", () => {
-      const c = createCounter({ ...getDefaultState(contract), min: -5, max: 5 });
+  describe("bounded behavior", () => {
+    it("never returns values outside the declared bounds", () => {
+      const bounded = createCounter({
+        ...getDefaultState(contract),
+        min: -5,
+        max: 5,
+      });
 
-      for (let i = 0; i < 5; i++) c.increment();
-      expect(c.get().value).toBe(5);
+      for (let i = 0; i < 5; i++) bounded.increment();
+      expect(bounded.get().value).toBe(5);
 
-      expect(() => c.increment()).toThrowError(CounterError);
-      expect(c.get().value).toBe(5);
+      try {
+        bounded.increment();
+      } catch {
+      }
+      expect(bounded.get().value).toBe(5);
 
-      for (let i = 0; i < 10; i++) c.decrement();
-      expect(c.get().value).toBe(-5);
+      for (let i = 0; i < 10; i++) bounded.decrement();
+      expect(bounded.get().value).toBe(-5);
 
-      expect(() => c.decrement()).toThrowError(CounterError);
-      expect(c.get().value).toBe(-5);
+      try {
+        bounded.decrement();
+      } catch {
+      }
+      expect(bounded.get().value).toBe(-5);
     });
   });
 
-  describe("error taxonomy matches contract", () => {
-    it("only throws error codes declared in the contract", () => {
+  describe("error taxonomy", () => {
+    it("only emits error codes declared in the contract", () => {
       const declaredCodes = Object.keys(contract.errors);
-      const c = createCounter({ ...getDefaultState(contract), min: 0, max: 0, value: 0 });
+      const bounded = createCounter({
+        ...getDefaultState(contract),
+        min: 0,
+        max: 0,
+        value: 0,
+      });
 
       const collectedCodes: string[] = [];
 
-      try { c.increment(); } catch (e) {
-        if (e instanceof CounterError) collectedCodes.push(e.code);
+      try {
+        bounded.increment();
+      } catch (error) {
+        collectedCodes.push(expectContractError(error).code);
       }
-      try { c.decrement(); } catch (e) {
-        if (e instanceof CounterError) collectedCodes.push(e.code);
+
+      try {
+        bounded.decrement();
+      } catch (error) {
+        collectedCodes.push(expectContractError(error).code);
       }
 
       expect(collectedCodes.length).toBe(2);
       for (const code of collectedCodes) {
         expect(declaredCodes).toContain(code);
-      }
-    });
-
-    it("error retryable flag matches the contract", () => {
-      const c = createCounter({ ...getDefaultState(contract), max: 0, value: 0 });
-
-      try { c.increment(); } catch (e) {
-        if (e instanceof CounterError) {
-          expect(e.retryable).toBe(contract.errors[e.code].retryable);
-        }
       }
     });
   });

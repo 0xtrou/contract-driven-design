@@ -2,17 +2,11 @@
 
 ## 1. Purpose
 
-This repository defines a software philosophy where components are built for **agents first** and **humans second**.
+This repository defines a software philosophy with one governing rule:
 
-The central problem:
+> **We do not judge how you build. We enforce what you commit to.**
 
-> AI agents currently need to read large portions of a codebase to infer behavior.
-
-The central solution:
-
-> Every component must publish an explicit, machine-readable contract that provides blackbox guarantees.
-
-This document is the normative specification for that philosophy.
+The observable behavior of a component at its boundary must honor the declared contract. Everything inside the boundary is non-normative.
 
 ---
 
@@ -21,254 +15,285 @@ This document is the normative specification for that philosophy.
 A system is not agent-friendly because it has good code.
 A system is agent-friendly because behavior is explicit at the boundary.
 
-If behavior is implicit in implementation details, agents will crawl source code.
-If behavior is explicit in contracts, agents can reason at the interface layer.
+If behavior is implicit — hidden in implementation details, tribal conventions, inferred from tests — agents must read source code.
 
-### Equation
+If behavior is explicit in a contract at the boundary — agents reason from the contract alone.
 
-`Need-to-read-whole-repo = hidden behavior + boundary leaks + undefined failures`
+### Root cause equation
+
+```
+Need-to-read-repo = hidden behavior + boundary leaks + undefined failures
+```
 
 Design goal: drive all three terms toward zero.
 
 ---
 
-## 3. Two-Layer Model
+## 3. The Boundary Rule
 
-### 3.1 Agent-First Driven Design (AFDD)
+This is the single normative statement of this philosophy:
 
-AFDD is the architecture principle:
+> **Observable behavior at the component boundary must conform to the declared contract version.**
+
+What this does and does not say:
+
+| Inside the boundary | Outside the boundary |
+|---|---|
+| Not our concern | Fully enforced |
+| Any code style | Declared input schema |
+| Any algorithm | Declared output shape |
+| Any level of mess | Declared error taxonomy |
+| Any internal pattern | Declared side effects |
+| No judgment | Declared annotations |
+
+The framework never asks "is your code clean?"
+
+It only asks one question: **did you honor your commitments?**
+
+---
+
+## 4. Two-Layer Model
+
+### 4.1 Agent-First Driven Design (AFDD)
+
+The architecture principle:
 
 - The primary consumer of system capabilities is an autonomous agent.
 - Capability boundaries must be discoverable and machine-readable.
-- Runtime behavior must be auditable and policy-governed.
-- Human readability is important, but not the integration bottleneck.
+- Agents reason from contracts, not source code.
+- Human readability is valuable but not the integration bottleneck.
 
-### 3.2 Contract-Driven Components (CDC)
+### 4.2 Contract-Driven Components (CDC)
 
-CDC is the implementation mechanism:
+The implementation mechanism:
 
-- Each component has one canonical contract artifact (`*.component.yml`).
-- Source code implements the contract; it does not define the contract.
-- Tests verify conformance against the contract.
+- Every component declares a canonical contract (`*.component.yml`).
+- The contract is the source of truth for boundary behavior.
+- Implementation details are non-normative unless they alter boundary behavior.
 - Generated interfaces (MCP/OpenAPI/SDK stubs) are projections of the contract.
 
-AFDD without CDC is ideology.
-CDC without AFDD is overhead.
+AFDD without CDC is ideology.  
+CDC without AFDD is overhead.  
 Both are required.
 
 ---
 
-## 4. Contract Artifact Requirements
+## 5. Contract Requirements
 
-Each component MUST ship:
+### 5.1 Mandatory deliverables
 
-1. **Definition**: `component-name.component.yml`
-2. **Implementation**: source code
-3. **Conformance Tests**: contract tests + behavior tests
-4. **Examples**: golden input/output (or error) cases
+A component is only deployable with:
 
-Optional but recommended:
+1. **Canonical contract** — `component-name.component.yml`
+2. **Boundary conformance evidence** — tests that verify the contract is honored
 
-- machine-readable changelog
-- provider stubs for external dependencies
+Implementation strategy, code structure, internal test coverage — these are the developer's concern, not the framework's.
 
-### 4.1 Canonical Fields (Minimum)
+### 5.2 Required contract fields
 
 A valid contract MUST declare:
 
-- `component`, `version`, `kind`
-- `description`, `instructions`
-- `input` schema per operation
-- `output` schema
-- `errors` taxonomy
-- `policies` (timeouts, idempotency, etc.)
-- `sideEffects.allowed` and `sideEffects.forbidden`
-- `guarantees.success` and `guarantees.failure`
-- operation `annotations` (readOnly/destructive/idempotent/openWorld)
+- `component`, `version`, `kind` — identity
+- `description`, `instructions` — agent-facing semantics
+- `input` schema per operation — what the boundary accepts
+- `output` schema — what the boundary returns
+- `errors` — typed, exhaustive failure taxonomy with retryability
+- `policies` — timeout, idempotency, and behavioral policies
+- `sideEffects.allowed` and `sideEffects.forbidden` — external effect permissions
+- `guarantees.success` and `guarantees.failure` — behavioral commitments
+- `annotations` per operation — readOnly, destructive, idempotent, openWorld
 
-### 4.2 Contract Authority Rule
+### 5.3 Contract authority
 
-`*.component.yml` is the source of truth.
+The contract is authoritative.
 
-If code and contract diverge, code is wrong until proven conformant.
-
----
-
-## 5. MCP-Native by Default
-
-Every contract-driven component MUST be projectable into an MCP server surface.
-
-### 5.1 Projection Rule
-
-- Contract operations → MCP tools
-- Contract examples/instructions → MCP prompts
-- Contract/state artifacts → MCP resources
-- Contract errors → structured MCP error payloads
-
-### 5.2 Layering Rule
-
-MCP is a runtime projection, not the authority.
-
-Authority: `*.component.yml`
-Projection: MCP tool/resource/prompt definitions
-
-This prevents lock-in to protocol-specific limitations.
+When behavior observed at the boundary diverges from the contract, the component is non-conformant — regardless of what the implementation intends.
 
 ---
 
-## 6. Behavioral Guarantees
+## 6. MCP-Native Projection
+
+Every contract-driven component is projectable into an MCP server surface.
+
+### 6.1 Projection rule
+
+| Contract field | MCP projection |
+|---|---|
+| Operations | Tools |
+| Instructions / examples | Prompts |
+| Contract artifact / state | Resources |
+| Error taxonomy | Structured error payloads |
+| Annotations | Tool metadata hints |
+
+### 6.2 Authority rule
+
+MCP is a runtime projection. It is not the authority.
+
+```
+counter.component.yml  →  [projected as]  →  MCP server
+```
+
+Changing the MCP surface without changing the contract is a violation.  
+The contract drives the projection, never the reverse.
+
+---
+
+## 7. Behavioral Commitments
 
 Schema-only contracts are insufficient.
 
-A contract MUST define behavior beyond shape:
+A contract must commit to behavior beyond shape:
 
 - invariants that always hold on success
-- explicit failure semantics and retryability
+- explicit failure semantics and retryability per error code
 - state transition constraints for stateful components
-- side-effect boundaries
+- side-effect boundaries (what the component is and is not permitted to do)
 
-### 6.1 Failure Determinism
+### 7.1 Failure determinism
 
 All expected failures MUST be represented by declared error codes.
 
-Undeclared errors crossing boundaries are contract violations.
+An undeclared error escaping the component boundary is a contract violation.
 
-### 6.2 State Safety
+### 7.2 State safety
 
 For stateful components:
 
 - invalid transitions MUST fail explicitly
-- failure paths MUST not mutate state unless explicitly declared
+- failure paths MUST NOT mutate state unless explicitly declared
 
 ---
 
-## 7. Versioning and Compatibility
+## 8. Versioning
 
-### 7.1 SemVer Rule
+### 8.1 SemVer rule
 
 Contracts MUST use semantic versioning.
 
-- Patch: non-behavioral fixes
-- Minor: backward-compatible additions
-- Major: breaking changes
+- **Patch** — non-behavioral fixes
+- **Minor** — backward-compatible additions
+- **Major** — breaking boundary changes
 
-### 7.2 Breaking Change Examples
+### 8.2 Breaking change examples
 
 - removing or renaming required input fields
 - changing output semantics for existing operations
-- altering declared error meaning
+- altering declared error meaning or retryability
 - widening side effects (new external writes)
 
-### 7.3 CI Gate
+### 8.3 CI gate
 
-Contract diffs MUST be classified automatically.
+Contract diffs MUST be classified automatically.  
 Merges are blocked when version bump and change type are inconsistent.
 
 ---
 
-## 8. Verification Model
+## 9. Boundary Conformance Evidence
 
-### 8.1 Required Test Types
+A component is not deployable without evidence that its boundary honors its contract.
 
-1. **Contract conformance tests**
-2. **Behavior/invariant tests**
-3. **Error taxonomy tests**
-4. **Boundary tests** (side effects, idempotency, state transitions)
+Conformance evidence MUST verify:
 
-### 8.2 No-Claim Rule
+1. **Input boundary** — declared schema is enforced; invalid inputs are rejected
+2. **Output boundary** — declared output shape is always produced on success
+3. **Error boundary** — only declared error codes escape; retryability is accurate
+4. **Side-effect boundary** — declared allowed/forbidden side effects are respected
+5. **State boundary** — state is never mutated on failure (where declared)
 
-A component is not “done” unless:
+**What conformance evidence does NOT require:**
 
-- contract exists
-- tests pass
-- generated interface is valid
-- implementation matches declared guarantees
+- Internal unit tests
+- Code coverage metrics
+- Style or quality checks
+- Any assertion about how the component is implemented
 
 ---
 
-## 9. Governance and Security
+## 10. Governance
 
-### 9.1 Capability Minimization
+### 10.1 Capability minimization
 
 Agents receive the minimum capability set required for task completion.
 
-### 9.2 Side-Effect Transparency
+### 10.2 Side-effect transparency
 
-Every external side effect must be declared up front.
+Every external side effect must be declared before deployment.
 
-Hidden writes are a policy violation.
+An undeclared external call is a contract violation, not a code style issue.
 
-### 9.3 Auditability
+### 10.3 Auditability
 
 Agent actions must be reconstructible from:
 
 - selected capability
 - contract version
 - inputs
-- output/error
+- output or error
 - policy decisions
 
 ---
 
-## 10. Complexity Discipline
+## 11. Complexity discipline
 
-Contract-driven design must remain operationally lightweight.
+This philosophy must remain operationally lightweight.
 
-This philosophy should feel as simple as linting:
+The developer's experience should feel like:
 
-- one config
-- one contract file per component
-- one conformance command
-- one CI gate
+- write the contract
+- write the implementation (however you like)
+- run one conformance check
+- ship
 
 If adoption requires framework-heavy ceremony, the model has failed.
 
 ---
 
-## 11. Reference Implementation in This Repo
+## 12. Reference implementation
 
-`counter-component/` is the seed reference.
+`counter-component/` demonstrates boundary enforcement in practice:
 
-It demonstrates:
+- operations, errors, and state declared in contract
+- MCP surface projected from contract
+- boundary conformance tests prove commitments are honored
+- implementation internals are illustrative — not normative
 
-- contract-first component definition
-- explicit error taxonomy
-- state bounds + failure safety
-- MCP tool/resource exposure
-- conformance tests
-
-Future components should copy the same contract-first flow.
+Future components only need to honor their contract.  
+How they do it is their business.
 
 ---
 
-## 12. Non-Negotiable Rules
+## 13. Non-negotiable rules
 
-1. No component without a contract.
-2. No contract without tests.
-3. No hidden side effects.
-4. No undeclared error codes.
-5. No breaking changes without major version bump.
+1. No component ships without a contract.
+2. No contract without boundary conformance evidence.
+3. No undeclared error codes at the boundary.
+4. No undeclared side effects.
+5. No breaking changes without a major version bump.
 6. No MCP surface that contradicts the contract.
-7. No “done” status without conformance evidence.
+7. No "done" without conformance evidence passing.
 
 ---
 
-## 13. Terminology
+## 14. Terminology
 
-- **Agent-first**: architecture optimized for autonomous consumers.
-- **Blackbox guarantee**: behavior inferable from contract alone.
-- **Contract drift**: divergence between declared and actual behavior.
-- **Projection**: generated interface from canonical contract.
-- **Conformance**: implementation proves all declared guarantees.
+| Term | Definition |
+|---|---|
+| **Boundary** | The observable interface between a component and its consumers |
+| **Contract** | Declared behavioral commitments at the boundary |
+| **Conformance** | Evidence that boundary behavior matches declared contract |
+| **Projection** | Generated interface derived from contract (e.g. MCP server) |
+| **Contract drift** | Divergence between declared and observed boundary behavior |
+| **Blackbox guarantee** | Boundary behavior inferable from contract alone, without reading internals |
 
 ---
 
-## 14. Final Principle
+## 15. Core principle
 
-Readable code is valuable.
-Readable contracts are mandatory.
+We do not judge how you build.
 
-For humans, code explains how.
-For agents, contracts define what is guaranteed.
+We enforce what you commit to.
 
-In contract-driven design, guarantees win.
+Inside the boundary: freedom.  
+At the boundary: absolute accountability.
+
+**Commitments win.**
